@@ -1,49 +1,100 @@
+// lib/services/Recharges/mobileNumberScreen.dart
 import 'package:flutter/material.dart';
-import 'package:my_app/services/Recharges/rechargeDetails_screen.dart';
+import 'package:flutter/services.dart';
+import 'rechargeDetails_screen.dart';
 
-class MobileNumberScreen extends StatelessWidget {
+class MobileNumberScreen extends StatefulWidget {
+  const MobileNumberScreen({Key? key}) : super(key: key);
+
+  @override
+  State<MobileNumberScreen> createState() => _MobileNumberScreenState();
+}
+
+class _MobileNumberScreenState extends State<MobileNumberScreen> {
   final TextEditingController _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  void _onContinue() {
+    if (_formKey.currentState?.validate() ?? false) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RechargeDetailsScreen(mobile: _controller.text.trim()),
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Mobile Recharge'),
+        elevation: 0,
+      ),
       body: Padding(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Enter Mobile Number", style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-            SizedBox(height: 24),
-            TextField(
-              controller: _controller,
-              style: TextStyle(color: Colors.white),
-              keyboardType: TextInputType.phone,
-              maxLength: 10,
-              decoration: InputDecoration(
-                hintText: "10-digit mobile number",
-                hintStyle: TextStyle(color: Colors.grey),
-                filled: true,
-                fillColor: Color(0xFF1A1A1A),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter Mobile Number',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
-            ),
-            SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF2ECC71)),
-                onPressed: () {
-                  if (_controller.text.length == 10) {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => RechargeDetailsScreen(mobile: _controller.text)));
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _controller,
+                keyboardType: TextInputType.phone,
+                maxLength: 10,
+                // Only allow digits
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  hintText: '10-digit mobile number',
+                  prefixText: '+91  ',
+                  border: OutlineInputBorder(),
+                  counterText: '',
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter mobile number';
                   }
+                  if (value.length != 10) {
+                    return 'Mobile number must be exactly 10 digits';
+                  }
+                  // Indian mobile numbers start with 6-9
+                  if (!RegExp(r'^[6-9]\d{9}$').hasMatch(value)) {
+                    return 'Enter a valid Indian mobile number';
+                  }
+                  return null;
                 },
-                child: Text("Continue", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
               ),
-            ),
-          ],
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _onContinue,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'CONTINUE',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

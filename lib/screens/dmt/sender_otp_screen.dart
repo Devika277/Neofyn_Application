@@ -1,22 +1,18 @@
-// screens/dmt/sender_otp_screen.dart
 import 'package:flutter/material.dart';
 import '../../services/DMT/dmt_service.dart';
+import '../../services/storage_service.dart';
 import './sender_dashboard_screen.dart';
 
 class SenderOtpScreen extends StatefulWidget {
   final String mobileNumber;
-  final bool isExistingUser;
-  final String senderId;  // Make required, not nullable
-  final String senderName;  // Allow null
-  final VoidCallback? onVerificationSuccess;
+  final String senderName;
+  final int otpLength;   // dynamic from API (4 for Vimopay)
 
   const SenderOtpScreen({
     super.key,
     required this.mobileNumber,
-    this.isExistingUser = false,
-    required this.senderId,  // Now required
     required this.senderName,
-    this.onVerificationSuccess,
+    required this.otpLength,
   });
 
   @override
@@ -24,43 +20,39 @@ class SenderOtpScreen extends StatefulWidget {
 }
 
 class _SenderOtpScreenState extends State<SenderOtpScreen> {
-  final List<TextEditingController> _otpControllers = List.generate(
-    6,
-    (index) => TextEditingController(),
-  );
-  final List<FocusNode> _focusNodes = List.generate(6, (index) => FocusNode());
-  
   late DMTService _dmtService;
+
+  // Dynamic controllers based on otpLength
+  late List<TextEditingController> _otpControllers;
+  late List<FocusNode> _focusNodes;
 
   bool _isLoading = false;
   bool _isResending = false;
   int _resendTimer = 30;
   String? _error;
-  
+
   @override
   void initState() {
     super.initState();
-    _dmtService = DMTService('http://192.168.2.151:3000');
+    _dmtService = DMTService('https://kinsman-borax-colony.ngrok-free.dev'); // replace with env
+
+    _otpControllers = List.generate(widget.otpLength, (_) => TextEditingController());
+    _focusNodes = List.generate(widget.otpLength, (_) => FocusNode());
+
     _startResendTimer();
-    
-    // Debug logs
-    print('SenderOtpScreen initialized with:');
-    print('Mobile: ${widget.mobileNumber}');
-    print('SenderId: ${widget.senderId}');
-    print('SenderName: ${widget.senderName}');
+
+    // Auto-trigger OTP sending on screen load (optional)
+    _sendOtpOnLoad();
   }
-  
-  @override
-  void dispose() {
-    for (var controller in _otpControllers) {
-      controller.dispose();
+
+  Future<void> _sendOtpOnLoad() async {
+    try {
+      await _dmtService.sendOTP(widget.mobileNumber, widget.senderName);
+    } catch (e) {
+      debugPrint('Initial OTP send failed: $e');
     }
-    for (var node in _focusNodes) {
-      node.dispose();
-    }
-    super.dispose();
   }
-  
+
   void _startResendTimer() {
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted && _resendTimer > 0) {
@@ -71,123 +63,126 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
       }
     });
   }
-  
+
   String get _otpCode {
     return _otpControllers.map((c) => c.text).join();
   }
-  
+
   Future<void> _verifyOTP() async {
-    if (_otpCode.length != 6) {
-      setState(() => _error = 'Please enter 6-digit OTP');
+    if (_otpCode.length != widget.otpLength) {
+      setState(() => _error = 'Please enter ${widget.otpLength}-digit OTP');
       return;
     }
-    
+
     setState(() {
       _isLoading = true;
       _error = null;
     });
-    
+
     try {
       final result = await _dmtService.verifyOTP(
-        mobileNumber: widget.mobileNumber,
-        otp: _otpCode,
+        widget.mobileNumber,
+        _otpCode,    // otpPin
       );
-      
-      print('Verify OTP result: $result');
-      
+
+      debugPrint('Verify OTP result: $result');
+
       if (!mounted) return;
-      
-      setState(() {
-        _isLoading = false;
-      });
-      
-      if (result['success'] == true) {
-        // Call the success callback if provided
-        if (widget.onVerificationSuccess != null) {
-          widget.onVerificationSuccess!();
-        } else {
-          // Default navigation with null safety
-          final senderId = widget.senderId ?? widget.mobileNumber;
-          final senderName = widget.senderName ?? 'Sender';
-          
-          print('Navigating to dashboard with:');
-          print('SenderId: $senderId');
-          print('SenderName: $senderName');
-          
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SenderDashboardScreen(
-                mobileNumber: widget.mobileNumber,
-                senderId: senderId,
-                senderName: senderName, accountNumber: '', ifscCode: '', monthlyLimit: 0.0, monthlyUsed: 0.0,
-              ),
+
+      if (result['txnStatus'] == 'SUCCESS' ||
+          result['message']?.toString().toLowerCase().contains('successful') == true) {
+        // Save sender data if needed (e.g., mark onboarding complete)
+        await StorageService.saveSenderMobile(widget.mobileNumber);
+        await StorageService.setOnboardingCompleted(true);
+
+        // Navigate to dashboard – we don't have senderId from Vimopay; use mobile as identifier
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SenderDashboardScreen(
+              mobileNumber: widget.mobileNumber,
+              senderId: widget.mobileNumber,   // use mobile as ID
+              senderName: widget.senderName,
+              accountNumber: '',    // Not used in Vimopay flow
+              ifscCode: '',
+              monthlyLimit: 0.0,
+              monthlyUsed: 0.0,
             ),
-          );
-        }
+          ),
+        );
       } else {
         setState(() {
           _error = result['message'] ?? 'Invalid OTP. Please try again.';
         });
       }
-      
     } catch (e) {
-      print('Verify OTP error: $e');
+      debugPrint('Verify OTP error: $e');
       setState(() {
         _error = e.toString();
-        _isLoading = false;
       });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
-  
-  Future<void> _resendOTP() async {
-    if (_resendTimer > 0) return;
-    
-    setState(() {
-      _isResending = true;
-      _error = null;
-    });
-    
-    try {
-      final result = await _dmtService.sendOTP(widget.mobileNumber);
-      
-      print('Resend OTP result: $result');
-      
-      if (!mounted) return;
-      
+
+Future<void> _resendOTP() async {
+  if (_resendTimer > 0) return;
+
+  setState(() {
+    _isResending = true;
+    _error = null;
+  });
+
+  try {
+    // Use the actual mobile number from widget (already correct)
+    final result = await _dmtService.sendOTP(widget.mobileNumber, widget.senderName);
+    debugPrint('Resend OTP result: $result');
+
+    if (!mounted) return;
+
+    final bool success = (result['successStatus'] == true ||
+                          result['txnStatus'] == 'SUCCESS' ||
+                          result['message']?.toString().toLowerCase().contains('otp') == true);
+
+    if (success) {
       setState(() {
         _isResending = false;
         _resendTimer = 30;
       });
-      
-      if (result['success'] == true) {
-        for (var controller in _otpControllers) {
-          controller.clear();
-        }
-        _focusNodes[0].requestFocus();
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('OTP resent successfully'),
-            backgroundColor: Color(0xFF2ECC71),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } else {
-        setState(() {
-          _error = result['message'] ?? 'Failed to resend OTP';
-        });
-      }
-      
-    } catch (e) {
-      print('Resend OTP error: $e');
+      // Clear OTP fields
+      for (var controller in _otpControllers) controller.clear();
+      _focusNodes.first.requestFocus();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('OTP resent successfully'), backgroundColor: Color(0xFF2ECC71)),
+      );
+    } else {
+      // If endpoint returns error but registration already sent OTP, just show error but stay on screen
       setState(() {
-        _error = e.toString();
+        _error = result['message'] ?? 'Failed to resend OTP. Please check your mobile.';
         _isResending = false;
       });
     }
+  } catch (e) {
+    debugPrint('Resend OTP error: $e');
+    setState(() {
+      _error = 'Could not resend OTP. The OTP was already sent during registration. Please check your SMS.';
+      _isResending = false;
+    });
+    // Do NOT navigate away – user can still verify with original OTP
   }
-  
+}
+
+  @override
+  void dispose() {
+    for (var controller in _otpControllers) {
+      controller.dispose();
+    }
+    for (var node in _focusNodes) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -234,7 +229,7 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'We have sent a 6-digit OTP to +91 ${widget.mobileNumber}',
+                      'We have sent a ${widget.otpLength}-digit OTP to +91 ${widget.mobileNumber}',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white70,
@@ -244,9 +239,7 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
                   ],
                 ),
               ),
-              
               const SizedBox(height: 30),
-              
               const Text(
                 'Enter OTP',
                 style: TextStyle(
@@ -257,9 +250,9 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
               ),
               const SizedBox(height: 12),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: List.generate(
-                  6,
+                  widget.otpLength,
                   (index) => SizedBox(
                     width: 50,
                     child: TextField(
@@ -285,19 +278,20 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: Color(0xFF2ECC71)),
+                          borderSide: const BorderSide(color: Color(0xFF2ECC71)),
                         ),
                         filled: true,
                         fillColor: const Color(0xFF1A1A1A),
                       ),
                       onChanged: (value) {
-                        if (value.isNotEmpty && index < 5) {
+                        if (value.isNotEmpty && index < widget.otpLength - 1) {
                           _focusNodes[index + 1].requestFocus();
                         } else if (value.isEmpty && index > 0) {
                           _focusNodes[index - 1].requestFocus();
                         }
-                        
-                        if (_otpCode.length == 6) {
+
+                        // Auto-verify when all digits entered
+                        if (_otpCode.length == widget.otpLength) {
                           _verifyOTP();
                         }
                       },
@@ -305,7 +299,6 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
                   ),
                 ),
               ),
-              
               if (_error != null) ...[
                 const SizedBox(height: 12),
                 Text(
@@ -313,9 +306,7 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
                   style: const TextStyle(color: Colors.red, fontSize: 12),
                 ),
               ],
-              
               const SizedBox(height: 30),
-              
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -346,9 +337,7 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
                         ),
                 ),
               ),
-              
               const SizedBox(height: 16),
-              
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -380,14 +369,10 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
                     ),
                 ],
               ),
-              
               const Spacer(),
-              
               Center(
                 child: TextButton.icon(
-                  onPressed: () {
-                    _showHelpDialog();
-                  },
+                  onPressed: () => _showHelpDialog(),
                   icon: const Icon(Icons.help_outline, color: Colors.grey, size: 16),
                   label: const Text(
                     'Did not receive OTP?',
@@ -401,7 +386,7 @@ class _SenderOtpScreenState extends State<SenderOtpScreen> {
       ),
     );
   }
-  
+
   void _showHelpDialog() {
     showDialog(
       context: context,

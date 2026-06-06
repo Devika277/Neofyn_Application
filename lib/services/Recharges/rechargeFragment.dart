@@ -1,30 +1,48 @@
+// lib/screens/recharge_category_screen.dart (or wherever it is)
+
 import 'package:flutter/material.dart';
 import 'package:my_app/services/Recharges/mobileNumberScreen.dart';
-import 'package:my_app/screens/bbps_payment_screen.dart'; // ← add this import
-
-
+import 'package:my_app/screens/BBPS/bbps_payment_screen.dart';
 
 class RechargeCategoryScreen extends StatelessWidget {
-  final List<Map<String, dynamic>> categories = [
+  final bool isRechargeOnly;  // 👈 new flag
+
+  // Full list (recharges + bills)
+  final List<Map<String, dynamic>> _allCategories = [
     {"name": "Mobile Recharge", "icon": Icons.phone_android, "type": "mobile", "categoryId": "mobile", "emoji": "📱"},
-    {"name": "DTH Recharge",    "icon": Icons.tv,            "type": "dth", "categoryId": "dth", "emoji": "📡"},
+    {"name": "DTH Recharge",    "icon": Icons.tv,            "type": "dth",    "categoryId": "dth",    "emoji": "📡"},
     {"name": "Fastag",          "icon": Icons.directions_car, "type": "fastag", "categoryId": "fastag", "emoji": "🚗"},
     {"name": "Electricity",     "icon": Icons.lightbulb,     "type": "electricity", "categoryId": "ELECTRICITY", "emoji": "⚡"},
     {"name": "Postpaid",        "icon": Icons.description,   "type": "postpaid", "categoryId": "POSTPAID", "emoji": "📱"},
     {"name": "Loan Repayment",  "icon": Icons.account_balance, "type": "loan", "categoryId": "LOAN", "emoji": "🏦"},
     {"name": "Water Bill",      "icon": Icons.water_drop,    "type": "water", "categoryId": "WATER", "emoji": "💧"},
-    {"name": "Gas Bill",        "icon": Icons.fireplace,     "type": "gas", "categoryId": "GAS", "emoji": "🔥"},
+    {"name": "Gas Bill",        "icon": Icons.fireplace,     "type": "gas",   "categoryId": "GAS", "emoji": "🔥"},
     {"name": "Insurance",       "icon": Icons.shield,        "type": "insurance", "categoryId": "INSURANCE", "emoji": "🛡️"},
+    // Add more if needed (Broadband, Municipal, etc.)
   ];
+
+  RechargeCategoryScreen({super.key, this.isRechargeOnly = false});
+
+  // Filtered list – only types that are "mobile", "dth", "fastag"
+  List<Map<String, dynamic>> get _filteredCategories {
+    if (!isRechargeOnly) return _allCategories;
+    return _allCategories.where((cat) =>
+        cat['type'] == 'mobile' ||
+        cat['type'] == 'dth' ||
+        cat['type'] == 'fastag'
+    ).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final categories = _filteredCategories;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text(
-          "Recharge & Bill Pay",
-          style: TextStyle(color: Colors.white),
+        title: Text(
+          isRechargeOnly ? "Recharge" : "Recharge & Bill Pay",
+          style: const TextStyle(color: Colors.white),
         ),
         backgroundColor: const Color(0xFF1A1A1A),
         leading: IconButton(
@@ -66,7 +84,6 @@ class RechargeCategoryScreen extends StatelessWidget {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Use emoji instead of Icon for consistent style with BBPS screen
                         Text(
                           category['emoji']!,
                           style: const TextStyle(fontSize: 28),
@@ -94,35 +111,26 @@ class RechargeCategoryScreen extends StatelessWidget {
     final String categoryId = category['categoryId']!;
     final String categoryName = category['name']!;
 
-    switch (type) {
-      case 'mobile':
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => MobileNumberScreen(),
+    // Recharge types (mobile, dth, fastag) → go to MobileNumberScreen
+    if (type == 'mobile' || type == 'dth' || type == 'fastag') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MobileNumberScreen(),
+        ),
+      );
+    } else {
+      // Bill types → go to BBPSPaymentScreen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BBPSPaymentScreen(
+            preselectedCategory: categoryId,
+            categoryName: categoryName,
+            categoryEmoji: category['emoji'],
           ),
-        );
-        break;
-
-      case 'electricity':
-      case 'water':
-      case 'gas':
-      case 'dth':
-      case 'fastag':
-      case 'postpaid':
-      case 'loan':
-      case 'insurance':
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BBPSPaymentScreen(
-              preselectedCategory: categoryId,
-              categoryName: categoryName,
-              categoryEmoji: category['emoji'],
-            ),
-          ),
-        );
-        break;
+        ),
+      );
     }
   }
 }

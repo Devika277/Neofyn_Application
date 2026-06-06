@@ -103,3 +103,115 @@ exports.login = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+
+// ----------------------------------------------------------------------
+// Forgot Password – generate OTP and return it (for testing)
+// ----------------------------------------------------------------------
+exports.forgotPassword = async (req, res) => {
+  const { phone } = req.body;
+
+  if (!phone) {
+    return res.status(400).json({ success: false, message: 'Phone number is required' });
+  }
+
+  try {
+    // 1. Check if user exists
+    const userResult = await pool.query('SELECT id FROM users WHERE phone = $1', [phone]);
+    if (userResult.rows.length === 0) {
+      // For security, you may want to return generic message, but for testing we tell them
+      return res.status(404).json({ success: false, message: 'No account found with this phone number' });
+    }
+
+    // 2. Generate a random 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // 3. Store OTP in password_resets table
+    await pool.query(
+      `INSERT INTO password_resets (phone, otp, expires_at)
+       VALUES ($1, $2, $3)`,
+      [phone, otp, expiresAt]
+    );
+
+    // 4. Return success + OTP (for testing)
+    res.status(200).json({
+      success: true,
+      message: 'OTP generated successfully',
+      otp: otp,   // ⚠️ Remove this line in production
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// ----------------------------------------------------------------------
+// Reset Password – verify OTP and update password
+// ----------------------------------------------------------------------
+exports.resetPassword = async (req, res) => {
+  const { phone, otp, newPassword } = req.body;
+
+  if (!phone || !otp || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Phone, OTP, and new password are required' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+  }
+
+  try {
+    // 1. Fetch the most recent OTP for this phone
+    const otpResult = await pool.query(
+      `SELECT id, otp, expires_at, used
+       FROM password_resets
+       WHERE phone = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [phone]
+    );
+
+    if (otpResult.rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'No OTP request found for this number' });
+    }
+
+    const record = otpResult.rows[0];
+
+    // 2. Validate OTP
+    if (record.used) {
+      return res.status(400).json({ success: false, message: 'OTP already used' });
+    }
+
+    if (new Date() > new Date(record.expires_at)) {
+      return res.status(400).json({ success: false, message: 'OTP has expired' });
+    }
+
+    if (record.otp !== otp) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    }
+
+    // 3. Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 4. Update user's password
+    await pool.query('UPDATE users SET password = $1 WHERE phone = $2', [hashedPassword, phone]);
+
+    // 5. Mark OTP as used
+    await pool.query('UPDATE password_resets SET used = TRUE WHERE id = $1', [record.id]);
+
+    // 6. (Optional) Invalidate all refresh tokens for this user
+    await pool.query(
+      `DELETE FROM refresh_tokens
+       WHERE user_id = (SELECT id FROM users WHERE phone = $1)`,
+      [phone]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successful. Please log in with your new password.',
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};

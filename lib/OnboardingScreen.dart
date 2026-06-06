@@ -2,113 +2,270 @@ import 'package:flutter/material.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 
-
+// ── Neofyn Bharath Brand Colors ──────────────────────────────────────────────
+class NeofynColors {
+  static const background     = Color(0xFF2A1A0E); // deep coffee brown
+  static const surface        = Color(0xFF1A0D06); // bottom sheet / matte
+  static const card           = Color(0xFF3D2010); // slide illustration bg
+  static const cardAlt        = Color(0xFF2B1A0F); // alternate illustration bg
+  static const cardDark       = Color(0xFF1E1208); // darker illustration bg
+  static const primary        = Color(0xFFC8956C); // warm amber-brown accent
+  static const primaryDark    = Color(0xFF5C3A21); // N-icon background
+  static const textPrimary    = Colors.white;
+  static const textSecondary  = Color(0xFF8A7060); // muted warm grey
+  static const textHint       = Color(0xFF5A4030);
+  static const divider        = Color(0x14FFFFFF);
+  static const chipBg         = Color(0x26C8956C);
+  static const chipBorder     = Color(0x4DC8956C);
+  static const dotInactive    = Color(0x40C8956C);
+}
 
 class OnboardingScreen extends StatefulWidget {
+  const OnboardingScreen({super.key});
+
   @override
-  _OnboardingScreenState createState() => _OnboardingScreenState();
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  // This controls the sliding pages
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
-  // 1. YOUR DATA (Titles, Descriptions, and Icons)
   final List<Map<String, dynamic>> _pages = [
     {
-      "title": "Easiest Money Transfer",
-      "desc": "Send money to any bank account instantly.",
-      "icon": Icons.send_rounded,
+      'tag':   'Transfer',
+      'title': 'Easy Money\nTransfer',
+      'desc':  'Send money instantly to any bank or UPI ID with zero hidden fees.',
+      'icon':  Icons.send_rounded,
+      'chipL': '⚡ Instant',
+      'chipR': '₹0 Fees',
+      'bg':    NeofynColors.card,
     },
     {
-      "title": "Cashless Withdrawals",
-      "desc": "Withdraw cash without an ATM using partner points.",
-      "icon": Icons.payments_outlined,
+      'tag':   'Withdrawal',
+      'title': 'Cashless\nWithdrawals',
+      'desc':  'Withdraw cash from any partner ATM or merchant without a card.',
+      'icon':  Icons.credit_card_off_outlined,
+      'chipL': '📍 Nearby',
+      'chipR': 'Card-free',
+      'bg':    NeofynColors.cardAlt,
     },
     {
-      "title": "Fingerprint Recharges",
-      "desc": "Pay bills and recharge with just a touch.",
-      "icon": Icons.fingerprint_rounded,
+      'tag':   'Recharge',
+      'title': 'Hassle-free\nRecharges',
+      'desc':  'Fast fingerprint & one-click recharges for mobile, DTH, and data cards.',
+      'icon':  Icons.fingerprint_rounded,
+      'chipL': '⚡ One-tap',
+      'chipR': 'Instant',
+      'bg':    NeofynColors.cardDark,
     },
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Dark theme like your XML
-      body: Stack(
-        children: [
-          // 2. THE SLIDER (ViewPager2 equivalent)
-          PageView.builder(
-            controller: _pageController,
-            onPageChanged: (int index) {
-              setState(() {
-                _currentPage = index;
-              });
-            },
-            itemCount: _pages.length,
-            itemBuilder: (context, index) {
-              return _buildPageContent(
-                title: _pages[index]['title'],
-                desc: _pages[index]['desc'],
-                icon: _pages[index]['icon'],
-              );
-            },
-          ),
-
-          // 3. THE BOTTOM SECTION (Buttons and Dots)
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // The Indicator Dots
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(_pages.length, (index) => _buildDot(index)),
-                ),
-                const SizedBox(height: 30),
-
-                // The Buttons Container (Matte Black area)
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF1A1A1A), // Matte Black
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(30),
-                      topRight: Radius.circular(30),
+      backgroundColor: NeofynColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ── Header ────────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _NeofynLogo(),
+                  TextButton(
+                    onPressed: () => _navigateToLogin(),
+                    child: const Text(
+                      'Skip →',
+                      style: TextStyle(
+                        color: Color(0x80FFFFFF),
+                        fontSize: 13,
+                      ),
                     ),
                   ),
-                  child: Column(
-                    children: [
-                      // Login Button (Emerald Green)
-                      _buildButton(
-                        "Log in",
-                         const Color(0xFF2ECC71), 
-                         Colors.black,
-                         onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => LoginScreen()),
-                            );
-                          },),
-                      
-                      const SizedBox(height: 15),
-                      // Signup Button (Outlined)
-                     
-                      _buildOutlineButton(
-                        "Sign up",
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => RegisterScreen()), // Replace with your Register class name
-                          );
-                        },),
+                ],
+              ),
+            ),
+
+            // ── Slides ────────────────────────────────────────────────────
+            Expanded(
+              child: PageView.builder(
+                controller: _pageController,
+                onPageChanged: (i) => setState(() => _currentPage = i),
+                itemCount: _pages.length,
+                itemBuilder: (_, i) => _buildSlide(_pages[i]),
+              ),
+            ),
+
+            // ── Bottom Buttons (No dark box) ──────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Dots
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                      _pages.length,
+                      (i) => _buildDot(i),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Log in
+                  _PrimaryButton(
+                    label: 'Log in',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => LoginScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Sign up
+                  _OutlineButton(
+                    label: 'Sign up',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => RegisterScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Security badge
+                  Row(
+                    children: const [
+                      Expanded(child: Divider(color: NeofynColors.divider)),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(
+                          '🔒 Secured by 256-bit encryption',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Color(0x4DFFFFFF),
+                          ),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: NeofynColors.divider)),
                     ],
                   ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Slide ──────────────────────────────────────────────────────────────────
+  Widget _buildSlide(Map<String, dynamic> data) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Illustration card
+          Container(
+            width: double.infinity,
+            height: 200,
+            decoration: BoxDecoration(
+              color: data['bg'] as Color,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Outer ring
+                Container(
+                  width: 130,
+                  height: 130,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: NeofynColors.primary.withOpacity(0.15),
+                      width: 2,
+                    ),
+                  ),
+                ),
+                // Inner ring
+                Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: NeofynColors.primary.withOpacity(0.30),
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+                // Icon tile
+                Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    color: NeofynColors.primary,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    data['icon'] as IconData,
+                    size: 30,
+                    color: NeofynColors.surface,
+                  ),
+                ),
+                // Top-left chip
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  child: _Chip(data['chipL'] as String),
+                ),
+                // Bottom-right chip
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: _Chip(data['chipR'] as String),
                 ),
               ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Tag
+          Text(
+            (data['tag'] as String).toUpperCase(),
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: NeofynColors.primary,
+              letterSpacing: 1.8,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Title
+          Text(
+            data['title'] as String,
+            style: const TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              color: NeofynColors.textPrimary,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Description
+          Text(
+            data['desc'] as String,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0x8CFFFFFF),
+              height: 1.6,
             ),
           ),
         ],
@@ -116,60 +273,123 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // --- HELPER WIDGETS (To keep code clean) ---
-
-  Widget _buildPageContent({required String title, required String desc, required IconData icon}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 40),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Icon(icon, size: 150, color: const Color(0xFF2ECC71)),
-          ),
-          const SizedBox(height: 50),
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 20),
-          Text(desc, style: const TextStyle(color: Colors.grey, fontSize: 16)),
-          const SizedBox(height: 100), // Leave space for buttons
-        ],
-      ),
-    );
-  }
-
+  // ── Dot indicator ──────────────────────────────────────────────────────────
   Widget _buildDot(int index) {
-    return Container(
-      height: 8,
-      width: _currentPage == index ? 24 : 8,
-      margin: const EdgeInsets.only(right: 5),
+    final isActive = _currentPage == index;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.only(right: 6),
+      height: 6,
+      width: isActive ? 22 : 6,
       decoration: BoxDecoration(
-        color: _currentPage == index ? const Color(0xFF2ECC71) : Colors.grey,
-        borderRadius: BorderRadius.circular(4),
+        color: isActive ? NeofynColors.primary : NeofynColors.dotInactive,
+        borderRadius: BorderRadius.circular(3),
       ),
     );
   }
 
-  Widget _buildButton(String text, Color bgColor, Color textColor, {required VoidCallback onTap}) {
+  void _navigateToLogin() => Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (_) => LoginScreen()),
+  );
+}
+
+// ── Logo Widget ────────────────────────────────────────────────────────────
+// ── Logo Widget (using asset image with correct sizing) ───────────────────
+class _NeofynLogo extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    // Use a constrained container to prevent overflow
+    return SizedBox(
+      height: 180,                  // fixed height – adjust as needed
+      child: Image.asset(
+        'assets/images/logo_white.png',
+        fit: BoxFit.contain,      // keeps aspect ratio, no distortion
+      ),
+    );
+  }
+}
+
+// ── Chip Widget ────────────────────────────────────────────────────────────
+class _Chip extends StatelessWidget {
+  final String label;
+  const _Chip(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: NeofynColors.chipBg,
+        border: Border.all(color: NeofynColors.chipBorder, width: 1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: NeofynColors.primary,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Primary Button ─────────────────────────────────────────────────────────
+class _PrimaryButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _PrimaryButton({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 56,
+      height: 52,
       child: ElevatedButton(
-        style: ElevatedButton.styleFrom(backgroundColor: bgColor, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: NeofynColors.primary,
+          foregroundColor: NeofynColors.surface,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
         onPressed: onTap,
-        child: Text(text, style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
+}
 
-  Widget _buildOutlineButton(String text,{required VoidCallback onTap}) {
+// ── Outline Button ─────────────────────────────────────────────────────────
+class _OutlineButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _OutlineButton({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 56,
+      height: 52,
       child: OutlinedButton(
-        style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.white,
+          side: const BorderSide(color: Color(0x33FFFFFF), width: 1.5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
         onPressed: onTap,
-        child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }

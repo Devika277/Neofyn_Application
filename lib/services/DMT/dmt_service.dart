@@ -1,273 +1,234 @@
-// services/DMT/dmt_service.dart
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:my_app/services/storage_service.dart';
 
 class DMTService {
-  final Dio _dio;
-  
-  DMTService(String baseUrl) : _dio = Dio(BaseOptions(
-    baseUrl: baseUrl,
-    headers: {'Content-Type': 'application/json'},
-    validateStatus: (status) => status != null && status < 500,
-  )) {
+  late Dio _dio;
+  final String baseUrl;
+
+  DMTService(this.baseUrl) {
+    // Ensure baseUrl ends with a slash (or add it)
+    final cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+    _dio = Dio(BaseOptions(baseUrl: cleanBaseUrl));
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
         final token = await StorageService.getToken();
         if (token != null) {
           options.headers['Authorization'] = 'Bearer $token';
         }
-        print('Request: ${options.method} ${options.path}');
-        print('Data: ${options.data}');
         return handler.next(options);
-      },
-      onResponse: (response, handler) {
-        print('Response: ${response.statusCode} - ${response.data}');
-        return handler.next(response);
-      },
-      onError: (error, handler) {
-        print('Error: ${error.message}');
-        print('Response data: ${error.response?.data}');
-        return handler.next(error);
       },
     ));
   }
 
-  // Register new sender (remitter)
-  Future<Map<String, dynamic>> registerSender(Map<String, dynamic> data) async {
-    try {
-      // Ensure all data is properly formatted
-      final requestBody = {
-        'senderMobile': data['senderMobile'].toString(),
-        'senderName': data['senderName'].toString(),
-        'senderState': data['senderState'].toString(),
-        'senderCity': data['senderCity'].toString(),
-        'aadhaar': data['aadhaar'].toString(),
-        'address': data['address'].toString(),
-        'pinCode': data['pinCode'].toString(),  // Ensure string
-        'ip': data['ip'].toString(),
-        'lat': data['lat'].toString(),
-        'long': data['long'].toString(),
-      };
-      
-      print('Register sender request: $requestBody');
-      
-      final response = await _dio.post('/dmt/sender/register', data: requestBody);
-      
-      print('Register sender response: ${response.data}');
-      
-      if (response.data['success'] == true) {
-        return {
-          'success': true,
-          'senderId': response.data['senderMobile'] ?? data['senderMobile'],
-          'message': response.data['message'] ?? 'Registration initiated. Please verify OTP.'
-        };
-      }
-      return {
-        'success': false, 
-        'message': response.data['message'] ?? 'Registration failed'
-      };
-    } catch (e) {
-      print('Register sender error: $e');
-      if (e is DioException) {
-        return {
-          'success': false, 
-          'message': e.response?.data['message'] ?? e.message
-        };
-      }
-      return {'success': false, 'message': 'Registration failed: $e'};
-    }
+  // Helper for location (implement as needed)
+  Future<Map<String, String>> _getLocation() async {
+    // TODO: implement actual GPS and IP fetching
+    return {
+      'ip': '127.0.0.1',
+      'lat': '0.0',
+      'long': '0.0',
+    };
   }
 
-  // Send OTP for sender verification
-  Future<Map<String, dynamic>> sendOTP(String mobileNumber) async {
-    try {
-      final response = await _dio.post('/dmt/sender/retrigger-otp',
-        data: {
-          'senderMobile': mobileNumber,
-          'senderName': 'User'  // Will be fetched by backend
-        }
-      );
-      
-      if (response.data['success'] == true) {
-        return {'success': true, 'message': 'OTP sent successfully'};
-      }
-      return {'success': true, 'message': 'OTP sent successfully'};
-    } catch (e) {
-      print('Send OTP error: $e');
-      return {'success': true, 'message': 'OTP sent successfully'};
-    }
+  // ---------- MASTER DATA (no encryption) ----------
+  Future<dynamic> fetchStates() async {
+    // ✅ Correct endpoint: /api/dmt/states
+    final response = await _dio.get('/api/dmt/states');
+    return response.data;
   }
 
-  // Verify OTP
-  Future<Map<String, dynamic>> verifyOTP({
-    required String mobileNumber,
-    required String otp,
-  }) async {
-    try {
-      final response = await _dio.post('/dmt/sender/verify-otp',
-        data: {
-          'senderMobile': mobileNumber,
-          'otpPin': otp,
-          'ip': '0.0.0.0',
-          'lat': '0.0',
-          'long': '0.0',
-        }
-      );
-      
-      if (response.data['success'] == true) {
-        return {'success': true, 'message': 'OTP verified successfully'};
-      }
-      return {'success': false, 'message': response.data['message']};
-    } catch (e) {
-      print('Verify OTP error: $e');
-      return {'success': true, 'message': 'OTP verified successfully'};
-    }
+  // ✅ Changed to POST with body { stateCode }
+// Flutter
+Future<dynamic> fetchCities(String stateCode) async {
+  final response = await _dio.get(
+    '/api/dmt/cities',
+    queryParameters: {'stateCode': stateCode.trim()},
+  );
+  return response.data;
+}
+
+  Future<dynamic> fetchBanks() async {
+    final response = await _dio.get('/api/dmt/banks');
+    return response.data;
   }
 
-  // Check if sender exists
-  // Check if sender exists
-Future<Map<String, dynamic>> checkSender(String mobileNumber) async {
+  // ---------- DMT OPERATIONS ----------
+Future<dynamic> syncBeneficiaryWithLocalDb(Map<String, dynamic> data) async {
+  final response = await _dio.post('/api/dmt/beneficiary/sync-local', data: {
+    'remitterId': data['senderMobile'],
+    'accountHolderName': data['beneName'],
+    'accountNumber': data['accountNo'],
+    'ifscCode': data['ifsc'],
+    'bankName': data['bankName'],
+    'beneCode': data['beneCode'],
+    'accountType': data['accountType'],
+    'cityCode': data['cityCode'],
+    'pennyDropName': data['pennyDropName'],
+    'beneCity': data['beneCity'],
+    'beneState': data['beneState'],
+  });
+  return response.data;
+}
+
+
+
+Future<dynamic> agentLogin(String mobile, String pan) async {
+  final response = await _dio.post('/api/agent/login', data: {
+    'agentMobile': mobile,
+    'agentPan': pan,
+  });
+  return response.data;
+}
+
+  Future<dynamic> registerAgent(Map<String, dynamic> data) async {
+    final loc = await _getLocation();
+    final payload = {
+      ...data,
+      'ip': loc['ip'],
+      'lat': loc['lat'],
+      'long': loc['long'],
+    };
+    final response = await _dio.post('/api/dmt/agent/register', data: payload);
+    return response.data;
+  }
+
+
+
+Future<dynamic> performPennyDrop(String accountNo, String ifsc) async {
+  final loc = await _getLocation();
+  final payload = {
+    'beneficiaryAccountNumber': accountNo,   // ✅ correct key
+    'beneficiaryIFSC': ifsc,                 // ✅ correct key
+    'ip': loc['ip'],
+    'lat': loc['lat'],
+    'long': loc['long'],
+  };
+  final response = await _dio.post('/api/dmt/penny-drop', data: payload);
+  return response.data;
+}
+
+
+
+
+
+  Future<dynamic> resendTransactionOtp(String beneAccId) async {
+    final response = await _dio.post('/api/dmt/otp/resend', data: {'beneAccId': beneAccId});
+    return response.data;
+  }
+
+  Future<dynamic> registerSender(Map<String, dynamic> data) async {
+    final loc = await _getLocation();
+    final agentCode = await StorageService.getAgentCode();
+    final payload = {
+      ...data,
+      'agentCode': agentCode,
+      'ip': loc['ip'],
+      'lat': loc['lat'],
+      'long': loc['long'],
+      'pidData': '<dummyPidData/>', // dummy for UAT
+    };
+    final response = await _dio.post('/api/dmt/sender/register', data: payload);
+    return response.data;
+  }
+  
+Future<dynamic> sendOTP(String mobile, String name) async {
+  print('📱 sendOTP called with mobile: $mobile, name: $name');
+  final loc = await _getLocation();
+  final payload = {
+    'senderMobile': mobile,
+    'senderName': name,
+    'ip': loc['ip'],
+    'lat': loc['lat'],
+    'long': loc['long'],
+  };
+  print('📤 Sending OTP request payload: $payload');
   try {
-    final response = await _dio.post('/dmt/beneficiary/list',
-      data: {'senderMobile': mobileNumber}
-    );
-    
-    print('Check sender response status: ${response.statusCode}');
-    print('Check sender response data: ${response.data}');
-        
-      if (response.statusCode == 200 && response.data['success'] == true) {
-      final data = response.data['data'];
-      
-      // Check if sender exists by checking if there's any data
-      // or if the API returns a specific flag
-      if (data != null) {
-        // Check for different possible indicators
-        final hasBeneficiaries = data['beneficiaries'] != null && (data['beneficiaries'] as List).isNotEmpty;
-        final senderExists = data['senderExists'] == true || 
-                              data['exists'] == true || 
-                              data['isKycDone'] != null ||
-                              hasBeneficiaries;
-        
-        print('senderExists value: $senderExists');
-        print('data content: $data');
-
-
-        if (senderExists) {
-          // Convert numeric values properly
-          double monthlyLimit = 25000.0;
-          double monthlyUsed = 0.0;
-          
-          if (data['monthlyLimit'] != null) {
-            monthlyLimit = data['monthlyLimit'] is int 
-                ? (data['monthlyLimit'] as int).toDouble() 
-                : double.parse(data['monthlyLimit'].toString());
-          }
-          
-          if (data['monthlyUsed'] != null) {
-            monthlyUsed = data['monthlyUsed'] is int 
-                ? (data['monthlyUsed'] as int).toDouble() 
-                : double.parse(data['monthlyUsed'].toString());
-          }
-          
-          return {
-            'exists': true,
-            'senderMobile': mobileNumber,
-            'senderId': data['senderId']?.toString() ?? mobileNumber,
-            'senderName': data['senderName']?.toString() ?? 'Sender',
-            'accountNumber': data['accountNumber']?.toString() ?? 'Not added',
-            'ifscCode': data['ifscCode']?.toString() ?? 'Not added',
-            'monthlyLimit': monthlyLimit,
-            'monthlyUsed': monthlyUsed,
-          };
-        }
-      }
-    }
-    
-    // If we reach here, sender doesn't exist
-    print('Sender does not exist - will show registration form');
-    return {'exists': false};
-    
+    final response = await _dio.post('/api/dmt/sender/retrigger-otp', data: payload);
+    print('📥 OTP response data: ${response.data}');
+    return response.data;
   } catch (e) {
-    print('Check sender error: $e');
-    // On error, assume new sender to allow registration
-    return {'exists': false,
-          'senderMobile': mobileNumber,
-
-};
+    print('❌ OTP request failed: $e');
+    rethrow;
   }
 }
-  // Get beneficiary list
-  Future<Map<String, dynamic>> getBeneficiaryList(String senderMobile) async {
-    try {
-      final response = await _dio.post('/dmt/beneficiary/list',
-        data: {'senderMobile': senderMobile}
-      );
-      
-      if (response.data['success'] == true) {
-        final beneficiaries = response.data['data']?['beneficiaries'] ?? [];
-        return {
-          'success': true,
-          'data': beneficiaries.map((b) => {
-            'id': b['benecode'],
-            'name': b['benename'],
-            'accountNumber': b['accountno'],
-            'ifsc': b['ifsc'],
-            'verified': b['beneVerify'] == '1',
-          }).toList(),
-        };
-      }
-      return {'success': true, 'data': []};
-    } catch (e) {
-      return {'success': true, 'data': []};
-    }
+
+  Future<dynamic> verifyOTP(String mobile, String otpPin) async {
+    final loc = await _getLocation();
+    final response = await _dio.post(
+      '/api/dmt/sender/verify-otp',
+      data: {
+        'senderMobile': mobile,
+        'otpPin': otpPin,
+        'ip': loc['ip'],
+        'lat': loc['lat'],
+        'long': loc['long'],
+      },
+    );
+    return response.data;
   }
 
-  // Add beneficiary
-  Future<Map<String, dynamic>> registerBeneficiary(Map<String, dynamic> data) async {
-    try {
-      final response = await _dio.post('/dmt/beneficiary/register', data: {
-        'senderMobile': data['senderMobile'],
-        'beneName': data['name'],
-        'beneMobile': data['beneMobile'] ?? data['senderMobile'],
-        'accountNo': data['accountNumber'],
-        'accountType': 'SAVINGS',
-        'ifsc': data['ifsc'].toString().toUpperCase(),
-        'bankName': data['bankName'],
-        'beneCity': data['city'] ?? 'New Delhi',
-        'beneState': data['state'] ?? 'DL',
-        'ip': '0.0.0.0',
-        'lat': '0.0',
-        'long': '0.0',
-      });
-      
-      return response.data;
-    } catch (e) {
-      return {'success': false, 'message': 'Failed to add beneficiary'};
-    }
+  Future<dynamic> checkSender(String mobile) async {
+    final response = await _dio.post(
+      '/api/dmt/beneficiary/list',
+      data: {
+        'senderMobileNo': mobile,
+        'pageNumber': 1,
+        'pageSize': 10,
+      },
+    );
+    return response.data;
   }
 
-  // Send money
-  Future<Map<String, dynamic>> sendMoney({
-    required String senderMobile,
-    required int beneficiaryId,
+
+Future<dynamic> getBeneficiaryList(String senderMobile, {int pageNumber = 1, int pageSize = 10}) async {
+    final loc = await _getLocation();
+    final response = await _dio.post('/api/dmt/beneficiary/list', data: {
+        'senderMobileNo': senderMobile,
+        'pageNumber': pageNumber,
+        'pageSize': pageSize,
+        'ip': loc['ip'],
+        'lat': loc['lat'],
+        'long': loc['long'],
+    });
+    return response.data;
+}
+
+
+
+  Future<dynamic> registerBeneficiary(Map<String, dynamic> data) async {
+    final loc = await _getLocation();
+    final agentCode = await StorageService.getAgentCode();
+    final payload = {
+      ...data,
+      'agentCode': agentCode,
+      'ip': loc['ip'],
+      'lat': loc['lat'],
+      'long': loc['long'],
+    };
+    final response = await _dio.post('/api/dmt/beneficiary/register', data: payload);
+    return response.data;
+  }
+
+  Future<dynamic> sendMoney({
+    required String benneAccId,
     required String amount,
     required String otp,
-    String txnMode = 'IMPS',
+    required String txnMode, // "IMPS" or "NEFT"
   }) async {
-    try {
-      final response = await _dio.post('/dmt/transaction', data: {
-        'senderMobile': senderMobile,
-        'beneficiaryId': beneficiaryId,
+    final loc = await _getLocation();
+    final response = await _dio.post(
+      '/api/dmt/transaction',
+      data: {
+        'benneAccId': benneAccId,
         'amount': amount,
-        'txnMode': txnMode,
         'otp': otp,
-        'ip': '0.0.0.0',
-        'lat': '0.0',
-        'long': '0.0',
-      });
-      return response.data;
-    } catch (e) {
-      return {'success': false, 'message': 'Transaction failed'};
-    }
+        'txnMode': txnMode,
+        'ip': loc['ip'],
+        'lat': loc['lat'],
+        'long': loc['long'],
+      },
+    );
+    return response.data;
   }
 }

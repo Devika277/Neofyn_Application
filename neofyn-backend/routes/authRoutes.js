@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { register, login } = require('../controllers/authController');
+const { register, login, forgotPassword, resetPassword } = require('../controllers/authController');
 const { authorize } = require('../services/vimoPayService');
 const pool = require('../config/db');
 
@@ -14,6 +14,8 @@ router.post('/register', register);
 router.post('/login', login);
 
 
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 // Cache token in DB — reuse if fresh (tokens typically valid ~1 hour)
 router.post('/token', async (req, res) => {
   try {

@@ -1,9 +1,10 @@
-// screens/dmt/sender_lookup_screen.dart
 import 'package:flutter/material.dart';
 import '../../services/DMT/dmt_service.dart';
 import '../../services/storage_service.dart';
-import 'package:my_app/screens/dmt/sender_registration_form.dart';
-import 'package:my_app/screens/dmt/sender_dashboard_screen.dart';
+import 'sender_registration_form.dart';
+import 'sender_dashboard_screen.dart';
+import 'agent_registration_screen.dart';
+import 'sender_otp_screen.dart';
 
 class SenderLookupScreen extends StatefulWidget {
   const SenderLookupScreen({super.key});
@@ -15,14 +16,29 @@ class SenderLookupScreen extends StatefulWidget {
 class _SenderLookupScreenState extends State<SenderLookupScreen> {
   final TextEditingController _mobileController = TextEditingController();
   late DMTService _dmtService;
-
   bool _isLoading = false;
   String? _error;
+  final String _baseUrl = 'https://kinsman-borax-colony.ngrok-free.dev';
+
+
+
 
   @override
   void initState() {
     super.initState();
-    _dmtService = DMTService('http://192.168.2.151:3000');
+    _dmtService = DMTService(_baseUrl);
+    _checkAgentAndRedirect(); // ✅ Check agent on screen load
+  }
+
+  /// If no agent is registered, redirect to agent registration screen
+  Future<void> _checkAgentAndRedirect() async {
+    final agentCode = await StorageService.getAgentCode();
+    if (agentCode == null && mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const AgentRegistrationScreen()),
+      );
+    }
   }
 
   @override
@@ -33,79 +49,100 @@ class _SenderLookupScreenState extends State<SenderLookupScreen> {
 
   Future<void> _lookupSender() async {
     final mobile = _mobileController.text.trim();
-    
-    print('========== LOOKUP SENDER START ==========');
-    print('Mobile number entered: $mobile');
+    debugPrint('========== LOOKUP SENDER START ==========');
+    debugPrint('Mobile number entered: $mobile');
 
     if (mobile.isEmpty) {
       setState(() => _error = 'Please enter mobile number');
       return;
     }
-    
     if (mobile.length != 10) {
       setState(() => _error = 'Please enter valid 10-digit mobile number');
       return;
     }
-    
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-    
-    try {
-      print('Calling checkSender API for mobile: $mobile');
-      final result = await _dmtService.checkSender(mobile);
-      print('checkSender result: $result');
 
-      if (!mounted) return;
+   setState(() {
+    _isLoading = true;
+    _error = null;
+  });
+
+  try {
+    final result = await _dmtService.checkSender(mobile);
+    debugPrint('checkSender result: $result');
+
+    if (!mounted) return;
+
+    final registeredValue = result['senderRegistered'];
+    final bool isFullyRegistered = registeredValue.toString() == '1';
+
+    if (isFullyRegistered) {
+      // Sender already fully registered → go to dashboard
+      final senderName = await StorageService.getSenderName() ?? 'Sender';
+      final accountNumber = await StorageService.getSenderAccountNumber() ?? 'Not added';
+      final ifscCode = await StorageService.getSenderIfsc() ?? 'Not added';
+      final monthlyLimit = await StorageService.getMonthlyLimit() ?? 25000.0;
+      final monthlyUsed = await StorageService.getMonthlyUsed() ?? 0.0;
+
+
+
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SenderDashboardScreen(
+            mobileNumber: mobile,
+            senderId: mobile,
+            senderName: senderName,
+            accountNumber: accountNumber,
+            ifscCode: ifscCode,
+            monthlyLimit: monthlyLimit,
+            monthlyUsed: monthlyUsed,
+          ),
+        ),
+      );
+    } else {
+      // Sender not fully registered – might be pending OTP verification.
+      // Try to send OTP (or retrigger) to see if registration data exists.
       
-      if (result['exists'] == true) {
-        print('Sender exists - Going directly to dashboard (NO OTP)');
-        
-        // Existing sender - Go directly to dashboard
-        final senderId = result['senderId'] ?? mobile;
-        final senderName = result['senderName'] ?? 'Sender';
-        final accountNumber = result['accountNumber'] ?? 'Not added';
-        final ifscCode = result['ifscCode'] ?? 'Not added';
-        final monthlyLimit = result['monthlyLimit'] ?? 25000;
-        final monthlyUsed = result['monthlyUsed'] ?? 0;
-        
+      final pendingMobile = result['senderMobile'] ?? mobile;
+      final pendingName = result['senderName'] ?? '';
+      
+      final name = result['senderName'] ?? ''; // API may return name if already started
+      final otpResult = await _dmtService.sendOTP(mobile, name);
+      
+      if (otpResult['successStatus'] == true || otpResult['txnStatus'] == 'SUCCESS') {
+        // OTP sent successfully → navigate to verification screen
+        final otpLen = int.tryParse(otpResult['otpLen']?.toString() ?? '4') ?? 4;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => SenderDashboardScreen(
+            builder: (_) => SenderOtpScreen(
               mobileNumber: mobile,
-              senderId: senderId,
-              senderName: senderName,
-              accountNumber: accountNumber,
-              ifscCode: ifscCode,
-              monthlyLimit: monthlyLimit.toDouble(),
-              monthlyUsed: monthlyUsed.toDouble(),
+              // senderName: name.isNotEmpty ? name : 'Sender',
+              senderName: pendingName.isNotEmpty ? pendingName : 'Sender',
+
+              otpLength: otpLen,
             ),
           ),
         );
       } else {
-        print('New sender - Navigating to registration form');
-        
-        setState(() => _isLoading = false);
+        // No pending registration → go to full registration form
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => SenderRegistrationForm(
-              mobileNumber: mobile,
-            ),
+            builder: (_) => SenderRegistrationForm(mobileNumber: mobile),
           ),
-        );
+        ).then((_) => setState(() => _isLoading = false));
       }
-      
-    } catch (e) {
-      print('Error in _lookupSender: $e');
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
     }
+  } catch (e) {
+    debugPrint('Lookup error: $e');
+    setState(() {
+      _error = e.toString();
+      _isLoading = false;
+    });
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -209,7 +246,7 @@ class _SenderLookupScreenState extends State<SenderLookupScreen> {
       ),
     );
   }
-  
+
   void _showHelpDialog() {
     showDialog(
       context: context,

@@ -1,610 +1,431 @@
+// lib/services/Recharges/rechargeDetails_screen.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:geolocator/geolocator.dart';
+import '../../screens/login_screen.dart';
+import 'package:my_app/screens/BBPS/recharge_receipt_screen.dart';
+
+const String _baseUrl = 'https://kinsman-borax-colony.ngrok-free.dev';
+
+class OperatorItem {
+  final String code;
+  final String description;
+  const OperatorItem({required this.code, required this.description});
+}
 
 class RechargeDetailsScreen extends StatefulWidget {
   final String mobile;
-  RechargeDetailsScreen({required this.mobile});
+  const RechargeDetailsScreen({Key? key, required this.mobile})
+      : super(key: key);
 
   @override
-  _RechargeDetailsScreenState createState() => _RechargeDetailsScreenState();
+  State<RechargeDetailsScreen> createState() => _RechargeDetailsScreenState();
 }
 
-class _RechargeDetailsScreenState extends State<RechargeDetailsScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  
-  List<Map<String, dynamic>> _operators = [];
-  bool _isLoading = true;
-  bool _isProcessing = false;
-  
-  String? selectedOperatorCode;
-  String? selectedOperatorName;
-  String selectedCircle = "DLT";
-  
-  // Fixed plans - no API call to prevent overflow
-  final List<Map<String, dynamic>> _plans = [
-    {
-      'amount': 199,
-      'validity': '28 Days',
-      'data': '1.5GB/Day',
-      'voice': 'Unlimited',
-      'description': 'Popular Plan',
-      'category': 'combo',
-    },
-    {
-      'amount': 299,
-      'validity': '28 Days',
-      'data': '2GB/Day',
-      'voice': 'Unlimited',
-      'description': 'Value Plan',
-      'category': 'combo',
-    },
-    {
-      'amount': 399,
-      'validity': '56 Days',
-      'data': '2GB/Day',
-      'voice': 'Unlimited',
-      'description': 'Long Validity',
-      'category': 'combo',
-    },
-    {
-      'amount': 599,
-      'validity': '84 Days',
-      'data': '3GB/Day',
-      'voice': 'Unlimited',
-      'description': 'Premium Plan',
-      'category': 'combo',
-    },
-    {
-      'amount': 49,
-      'validity': '1 Day',
-      'data': '1GB',
-      'voice': 'Limited',
-      'description': 'Data Pack',
-      'category': 'data',
-    },
-    {
-      'amount': 98,
-      'validity': '7 Days',
-      'data': '6GB',
-      'voice': 'Limited',
-      'description': 'Weekly Data Pack',
-      'category': 'data',
-    },
-    {
-      'amount': 149,
-      'validity': '28 Days',
-      'data': '12GB',
-      'voice': 'Limited',
-      'description': 'Monthly Data Pack',
-      'category': 'data',
-    },
-  ];
-  
-  final Map<String, String> circleMap = {
-    "DLT": "Delhi",
-    "MUM": "Mumbai",
-    "KOL": "Kolkata",
-    "CHE": "Chennai",
-    "BLR": "Bangalore",
-    "HYD": "Hyderabad",
-  };
+class _RechargeDetailsScreenState extends State<RechargeDetailsScreen> {
+  bool _loadingOperators = false;
+  bool _processingPayment = false;
+  String? _errorMessage;
+
+  List<OperatorItem> _operators = [];
+  OperatorItem? _selectedOperator;
+  final String _serviceType = 'MBL';
+
+  // Custom amount input (replaces static plan list)
+  final TextEditingController _amountController = TextEditingController();
+  final FocusNode _amountFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     _fetchOperators();
-  }
-
-  Future<void> _fetchOperators() async {
-    try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? token = prefs.getString('accessToken');
-
-      if (token == null) {
-        _useDefaultOperators();
-        return;
-      }
-
-      final response = await http.post(
-        Uri.parse('http://192.168.2.151:3000/api/recharge/operators'),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $token",
-        },
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        
-        if (result['success'] == true && result['operators'] != null) {
-          setState(() {
-            _operators = result['operators'];
-            if (_operators.isNotEmpty) {
-              selectedOperatorCode = _operators[0]['code']?.toString();
-              selectedOperatorName = _operators[0]['description']?.toString();
-            }
-            _isLoading = false;
-          });
-          return;
-        }
-      }
-      
-      _useDefaultOperators();
-      
-    } catch (e) {
-      print("Error: $e");
-      _useDefaultOperators();
-    }
-  }
-  
-  void _useDefaultOperators() {
-    setState(() {
-      _operators = [
-        {'code': 'AIR', 'description': 'Airtel'},
-        {'code': 'JIO', 'description': 'Jio'},
-        {'code': 'VOD', 'description': 'Vi'},
-        {'code': 'BSNL', 'description': 'BSNL'},
-      ];
-      selectedOperatorCode = 'AIR';
-      selectedOperatorName = 'Airtel';
-      _isLoading = false;
-    });
-  }
-
-  Future<void> _processRecharge(Map<String, dynamic> plan) async {
-    setState(() => _isProcessing = true);
-    
-    try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? token = prefs.getString('accessToken'); 
-
-      if (token == null || token.isEmpty) {
-        _showSnackBar("Please login again");
-        return;
-      }
-
-      final response = await http.post(
-        Uri.parse('http://192.168.2.151:3000/api/recharge'),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $token", 
-        },
-        body: jsonEncode({
-          "mobile": widget.mobile,
-          "operator": selectedOperatorName,
-          "circle": circleMap[selectedCircle] ?? selectedCircle,
-          "amount": plan['amount'],
-          "idempotencyKey": const Uuid().v4(),
-          "testMode": true,
-        }),
-      ).timeout(const Duration(seconds: 15));
-
-      final result = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && result['success'] == true) {
-        _showSnackBar("✅ Recharge Successful! ₹${plan['amount']}");
-        Navigator.pop(context); 
-      } else {
-        _showSnackBar("Error: ${result['error'] ?? result['message']}");
-      }
-    } catch (e) {
-      print("Recharge error: $e");
-      _showSnackBar("Network Error: Could not reach server");
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
-  }
-
-  void _showSnackBar(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 2))
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        title: const Text("Recharge"),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : Column(
-            children: [
-              _buildHeader(),
-              const SizedBox(height: 16),
-              _buildOperatorCircleRow(),
-              const SizedBox(height: 24),
-              _buildTabs(),
-              const SizedBox(height: 8),
-              Expanded(child: _buildPlanList()),
-            ],
-          ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: const Color(0xFF2ECC71).withOpacity(0.2),
-              borderRadius: BorderRadius.circular(25),
-            ),
-            child: const Icon(Icons.phone_android, color: Color(0xFF2ECC71), size: 28),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Recharge For",
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-                Text(
-                  widget.mobile,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2ECC71).withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Text(
-              "Prepaid",
-              style: TextStyle(color: Color(0xFF2ECC71), fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOperatorCircleRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildDropdown(
-              label: "Operator",
-              value: selectedOperatorName,
-              items: _operators.map<String>((op) => op['description']?.toString() ?? "").toList(),
-              onChanged: (value) {
-                final selected = _operators.firstWhere(
-                  (op) => op['description'] == value,
-                  orElse: () => {},
-                );
-                setState(() {
-                  selectedOperatorName = value;
-                  selectedOperatorCode = selected['code']?.toString();
-                });
-              },
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildDropdown(
-              label: "Circle",
-              value: circleMap[selectedCircle],
-              items: circleMap.values.toList(),
-              onChanged: (value) {
-                final entry = circleMap.entries.firstWhere(
-                  (entry) => entry.value == value,
-                  orElse: () => const MapEntry("DLT", "Delhi"),
-                );
-                setState(() {
-                  selectedCircle = entry.key;
-                });
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required Function(String?) onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2ECC71).withOpacity(0.3)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          hint: Text(label, style: const TextStyle(color: Colors.grey)),
-          dropdownColor: const Color(0xFF1A1A1A),
-          style: const TextStyle(color: Colors.white),
-          isExpanded: true,
-          items: items.map((item) {
-            return DropdownMenuItem(
-              value: item,
-              child: Text(item),
-            );
-          }).toList(),
-          onChanged: onChanged,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTabs() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      child: TabBar(
-        controller: _tabController,
-        indicatorColor: const Color(0xFF2ECC71),
-        labelColor: const Color(0xFF2ECC71),
-        unselectedLabelColor: Colors.grey,
-        tabs: const [
-          Tab(text: "📱 Combo Plans", icon: Icon(Icons.local_offer)),
-          Tab(text: "📊 Data Packs", icon: Icon(Icons.wifi)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPlanList() {
-    final category = _tabController.index == 0 ? 'combo' : 'data';
-    final filteredPlans = _plans.where((p) => p['category'] == category).toList();
-    
-    if (filteredPlans.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.signal_cellular_alt, color: Colors.grey, size: 64),
-            SizedBox(height: 16),
-            Text("No plans available", style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-      );
-    }
-    
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: filteredPlans.length,
-      itemBuilder: (context, index) {
-        final plan = filteredPlans[index];
-        return _buildPlanCard(plan);
-      },
-    );
-  }
-
-  Widget _buildPlanCard(Map<String, dynamic> plan) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _showPaymentSheet(plan),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 70,
-                  height: 70,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [const Color(0xFF2ECC71).withOpacity(0.3), const Color(0xFF2ECC71).withOpacity(0.1)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Center(
-                    child: Text(
-                      "₹${plan['amount']}",
-                      style: const TextStyle(
-                        color: Color(0xFF2ECC71),
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        plan['description'],
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          _buildTag(Icons.timer_outlined, plan['validity']),
-                          _buildTag(Icons.wifi, plan['data']),
-                          _buildTag(Icons.call, plan['voice']),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: Colors.grey, size: 24),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTag(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.grey.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: Colors.grey),
-          const SizedBox(width: 4),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-        ],
-      ),
-    );
-  }
-
-  void _showPaymentSheet(Map<String, dynamic> plan) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24))
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 70,
-              height: 70,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2ECC71).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(35),
-              ),
-              child: const Icon(Icons.verified, color: Color(0xFF2ECC71), size: 36),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              "Confirm Payment",
-              style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.mobile,
-              style: const TextStyle(color: Colors.grey, fontSize: 14),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2ECC71).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  const Text(
-                    "Plan Amount",
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "₹${plan['amount']}",
-                    style: const TextStyle(
-                      color: Color(0xFF2ECC71),
-                      fontSize: 40,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    plan['validity'],
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2ECC71),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-                ),
-                onPressed: _isProcessing ? null : () {
-                  Navigator.pop(context);
-                  _processRecharge(plan);
-                },
-                child: _isProcessing 
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
-                    )
-                  : const Text(
-                      "PAY NOW",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _amountController.dispose();
+    _amountFocusNode.dispose();
     super.dispose();
+  }
+
+Future<String?> _getValidToken() async {
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('accessToken');
+  if (token == null || token.isEmpty) {
+    if (mounted) {
+      _showSnack('Session expired. Please login again.', isError: true);
+Navigator.pushReplacement(
+  context,
+  MaterialPageRoute(
+    builder: (context) => LoginScreen(),
+  ),
+);    }
+    return null;
+  }
+  return token;
+}
+
+  // ── Fetch operators from backend (no fallback) ───────────────────────────
+  Future<void> _fetchOperators() async {
+    setState(() {
+      _loadingOperators = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = await _getValidToken();
+if (token == null) {
+  setState(() {
+    _loadingOperators = false;
+    _errorMessage = 'Session expired. Please login again.';
+  });
+  return;
+}
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/recharge/operators'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'serviceType': _serviceType}),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> body = jsonDecode(response.body);
+
+        if (body['success'] == true && body['data'] is List) {
+          final List<dynamic> raw = body['data'];
+          final fetched = raw
+              .map((o) => OperatorItem(
+                    code: o['code']?.toString() ?? '',
+                    description: o['description']?.toString() ?? '',
+                  ))
+              .where((o) => o.code.isNotEmpty)
+              .toList();
+
+          if (fetched.isNotEmpty) {
+            setState(() {
+              _operators = fetched;
+              _selectedOperator = fetched.first;
+              _loadingOperators = false;
+            });
+            return;
+          } else {
+            throw Exception('Operator list is empty from server.');
+          }
+        } else {
+          throw Exception(body['message'] ?? 'Failed to fetch operators.');
+        }
+      } else {
+        throw Exception('Server error: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _loadingOperators = false;
+      });
+    }
+  }
+
+  // ── Get device location ───────────────────────────────────────────────────
+  Future<Map<String, String>> _getLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return {'lat': '0.0', 'long': '0.0'};
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return {'lat': '0.0', 'long': '0.0'};
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        return {'lat': '0.0', 'long': '0.0'};
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 5),
+      );
+
+      return {
+        'lat': position.latitude.toString(),
+        'long': position.longitude.toString(),
+      };
+    } catch (_) {
+      return {'lat': '0.0', 'long': '0.0'};
+    }
+  }
+
+  // ── Process recharge (using user‑entered amount) ──────────────────────────
+  Future<void> _processRecharge() async {
+    if (_selectedOperator == null) {
+      _showSnack('Please select an operator', isError: true);
+      return;
+    }
+
+    final amountText = _amountController.text.trim();
+    if (amountText.isEmpty) {
+      _showSnack('Please enter an amount', isError: true);
+      return;
+    }
+
+    final double? amount = double.tryParse(amountText);
+    if (amount == null || amount < 10 || amount > 10000) {
+      _showSnack('Amount must be between ₹10 and ₹10,000', isError: true);
+      return;
+    }
+
+    setState(() => _processingPayment = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = await _getValidToken();
+if (token == null) {
+  _showSnack('Session expired. Please login again.', isError: true);
+  setState(() => _processingPayment = false);
+  return;
+}
+
+      final location = await _getLocation();
+      final merchantRefId = const Uuid().v4();
+
+      final requestBody = {
+        'mobile': widget.mobile,
+        'operatorCode': _selectedOperator!.code,
+        'serviceType': _serviceType,
+        'amount': amount,
+        'merchantRefId': merchantRefId,
+        'lat': location['lat'],
+        'long': location['long'],
+        'udf1': '',
+        'udf2': '',
+        'udf3': '',
+      };
+
+      debugPrint('📡 Recharge request: ${jsonEncode(requestBody)}');
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/recharge'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(requestBody),
+      ).timeout(const Duration(seconds: 30));
+
+      final Map<String, dynamic> respBody = jsonDecode(response.body);
+      debugPrint('📩 Recharge response: ${jsonEncode(respBody)}');
+      debugPrint('🔍 transactionId from data: ${respBody['data']?['transactionId']}');
+
+
+      if (respBody['success'] == true) {
+        final data = respBody['data'] as Map<String, dynamic>? ?? {};
+        final statusCode = data['txnStatusCode']?.toString() ?? '';
+        final int? transactionId = data['transactionId'];
+        final double amount = (data['amount'] ?? double.tryParse(_amountController.text) ?? 0).toDouble();
+        final String mobile = data['mobile'] ?? widget.mobile;
+        final isQueued = statusCode == '004';
+   
+    if (transactionId != null) {
+        // Navigate to receipt screen
+        if (mounted) {
+            Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => RechargeReceiptScreen(transactionId: transactionId)),
+            );
+        }
+    } else {
+        _showSnack(
+          isQueued
+              ? 'Recharge queued! ₹$amount for ${widget.mobile}'
+              : 'Recharge successful! ₹$amount for ${widget.mobile}',
+          isError: false,
+        );
+
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) Navigator.pop(context);
+      } 
+      } else {
+        final errorCode = respBody['errorCode']?.toString() ?? '';
+        String userMessage;
+
+        switch (errorCode) {
+          case 'INSUFFICIENT_BALANCE':
+            userMessage = 'Insufficient wallet balance. Please add money first.';
+            break;
+          case 'PROVIDER_FAILED':
+            userMessage = 'Recharge failed. Please try again.';
+            break;
+          default:
+            userMessage = respBody['message']?.toString() ??
+                'Recharge failed. Please try again.';
+        }
+
+        _showSnack(userMessage, isError: true);
+      }
+    } catch (e) {
+      debugPrint('❌ Recharge error: $e');
+      _showSnack('Network error. Please check connection and try again.',
+          isError: true);
+    } finally {
+      if (mounted) setState(() => _processingPayment = false);
+    }
+  }
+
+  void _showSnack(String message, {required bool isError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  // ── Build UI ──────────────────────────────────────────────────────────────
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Mobile Recharge'), elevation: 0),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loadingOperators) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
+              const SizedBox(height: 16),
+              Text(
+                'Failed to load operators',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: _fetchOperators,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Operators loaded successfully – show recharge form
+    return Column(
+      children: [
+        _buildMobileHeader(),
+        _buildOperatorDropdown(),
+        const Divider(height: 1),
+        _buildAmountInput(),
+        const SizedBox(height: 24),
+        _buildRechargeButton(),
+        const Spacer(),
+      ],
+    );
+  }
+
+  Widget _buildMobileHeader() {
+    return Container(
+      color: Theme.of(context).primaryColor.withOpacity(0.08),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          const Icon(Icons.phone_android, size: 20),
+          const SizedBox(width: 10),
+          Text(
+            widget.mobile,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorDropdown() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: DropdownButtonFormField<OperatorItem>(
+        value: _selectedOperator,
+        decoration: const InputDecoration(
+          labelText: 'Select Operator',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        ),
+        items: _operators
+            .map((op) => DropdownMenuItem<OperatorItem>(
+                  value: op,
+                  child: Text(op.description),
+                ))
+            .toList(),
+        onChanged: (val) => setState(() => _selectedOperator = val),
+      ),
+    );
+  }
+
+  Widget _buildAmountInput() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: TextField(
+        controller: _amountController,
+        focusNode: _amountFocusNode,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(
+          labelText: 'Enter Amount (₹)',
+          hintText: 'e.g., 199',
+          prefixIcon: Icon(Icons.currency_rupee),
+          border: OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRechargeButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: _processingPayment ? null : _processRecharge,
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: _processingPayment
+              ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('PROCEED TO PAY', style: TextStyle(fontSize: 16)),
+        ),
+      ),
+    );
   }
 }

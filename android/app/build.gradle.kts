@@ -1,13 +1,21 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val localProps = Properties()
+val localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) {
+    localProps.load(FileInputStream(localPropsFile))
+}
+
 android {
-    namespace = "com.yourcompany.my_app"
-    compileSdk = flutter.compileSdkVersion
+    namespace = "com.example.my_app"
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -20,20 +28,26 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.yourcompany.my_app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        applicationId = "com.example.my_app"
+        minSdk = 24
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        buildConfigField("String", "MATM_SECRET_KEY",   "\"${localProps["MATM_SECRET_KEY"] ?: ""}\"")
+        buildConfigField("String", "MATM_SALT_KEY",     "\"${localProps["MATM_SALT_KEY"] ?: ""}\"")
+        buildConfigField("String", "MATM_ENCRYPT_KEY",  "\"${localProps["MATM_ENCRYPT_KEY"] ?: ""}\"")
+        buildConfigField("String", "MATM_USER_ID",      "\"${localProps["MATM_USER_ID"] ?: ""}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -41,4 +55,18 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation(files("libs/matm-release.aar"))
+    implementation(files("libs/microatm-release_V5.0.aar"))
+    implementation(files("libs/morefun_mpos_sdk_v3.0.20240827.jar"))
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.squareup.okhttp3:okhttp:4.11.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
+    implementation("androidx.activity:activity-ktx:1.7.0")
+    implementation("androidx.core:core:1.12.0")
+    implementation("com.google.dagger:hilt-android:2.53.1")
+
 }

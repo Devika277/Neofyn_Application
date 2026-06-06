@@ -1,8 +1,8 @@
 // services/vimoEncryption.js
 const crypto = require("crypto");
 
-const edKey = "8086289ecab4a664c8410a1e79d19090";
-const ivKey = "7cca987fb6cfeea37022977bde6e62c0";
+// const edKey = "8086289ecab4a664c8410a1e79d19090";
+// const ivKey = "7cca987fb6cfeea37022977bde6e62c0";
 
 function encrypt(plainText) {
     try {

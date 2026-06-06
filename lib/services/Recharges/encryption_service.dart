@@ -72,7 +72,7 @@ class EncryptionService {
       final result = utf8.decode(plainBytes);
       return result.trim();
     } catch (e) {
-      print('Decryption error: $e');
+      // print('Decryption error: $e');
       return '';
     }
   }

@@ -31,39 +31,44 @@ const getBalance = async (userId) => {
          return parseFloat(result.rows[0]?.balance || 0);
         } catch (error) {
             console.error('Error getting balance:', error);
-            return 0;
         }
     };
 
 // ============================================
 // Add money to main wallet (Credit)
 // ============================================
-const addMoney = async (userId, amount, description, adminId, transactionId = null) => {
-  const client = await pool.connect();
-  
-  try {
-            const result = await db.query(
-                'UPDATE users SET aeps_balance = aeps_balance + $1, updated_at = NOW() WHERE id = $2 RETURNING aeps_balance',
-                [amount, userId]
-            );
-            
-            const newBalance = parseFloat(result.rows[0]?.aeps_balance || 0);
-            
-            // Log transaction
-            await db.query(
-                `INSERT INTO wallet_transactions 
-                 (user_id, amount, type, description, admin_id, transaction_id, created_at) 
-                 VALUES ($1, $2, 'credit', $3, $4, $5, NOW())`,
-                [userId, amount, description, adminId, transactionId]
-            ).catch(err => console.error('Error logging wallet transaction:', err));
-            
-            console.log(`Added ₹${amount} to user ${userId}. New balance: ₹${newBalance}`);
-            return { success: true, newBalance };
-        } catch (error) {
-            console.error('Error adding money:', error);
-            throw error;
-        }
-    };
+const addMoney = async (userId, amount, description, adminId = null, merchantRefId = null) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Update user's wallet balance (assuming 'wallets' table)
+        const updateResult = await client.query(
+            `UPDATE wallets SET balance = balance + $1, updated_at = NOW() 
+             WHERE user_id = $2 RETURNING balance`,
+            [amount, userId]
+        );
+        const newBalance = parseFloat(updateResult.rows[0]?.balance || 0);
+
+        // 2. Insert a transaction record (using columns that exist in your table)
+        await client.query(
+            `INSERT INTO transactions 
+             (user_id, amount, type, description, merchant_ref_id, created_at) 
+             VALUES ($1, $2, 'credit', $3, $4, NOW())`,
+            [userId, amount, description, merchantRefId || `CREDIT-${Date.now()}`]
+        );
+
+        await client.query('COMMIT');
+        console.log(`✅ Added ₹${amount} to user ${userId}. New balance: ₹${newBalance}`);
+        return { success: true, newBalance };
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('❌ Error adding money:', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+};
 
 
 // ============================================
@@ -108,7 +113,7 @@ const deductMoney = async (userId, amount, description, referenceId = null, clie
     );
 
     const ledgerResult = await dbClient.query(
-      `INSERT INTO wallet_ledger 
+      `INSERT INTO wallet_ledger
          (wallet_id, transaction_type, amount, balance_after, description, reference_id) 
        VALUES($1, $2, $3, $4, $5, $6) 
        RETURNING *`,
